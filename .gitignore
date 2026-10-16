@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Source documents and generated output (not part of the repository)
+.archive/
+data/
+build/
+
+# Others
+README.md
