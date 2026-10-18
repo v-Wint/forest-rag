@@ -22,6 +22,8 @@ def setup_logging() -> None:
     logging.basicConfig(
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    # One INFO line per HTTP request (Hugging Face model checks, Groq calls) is noise.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # Cyrillic file names in the log: the Windows console is not UTF-8 by default.
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
