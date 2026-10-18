@@ -51,7 +51,9 @@ class Embedder:
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
         # Normalized: cosine similarity is then a plain inner product.
-        return self._model.encode(texts, normalize_embeddings=True).tolist()
+        return self._model.encode(
+            texts, normalize_embeddings=True, show_progress_bar=False
+        ).tolist()
 
 
 embedder = Embedder(

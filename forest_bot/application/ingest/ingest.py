@@ -132,7 +132,12 @@ async def activate(
         draft = await _own_draft(session, document_id, author_id)
     chunks = await embed_document(draft)
     replaced = await _swap_in(draft, place, chunks, replaces_id)
-    logger.info("document #%d is active at %s, replacing %s", document_id, place.id, replaces_id)
+    logger.info(
+        "document #%d is active at %s%s",
+        document_id,
+        place.id,
+        "" if replaces_id is None else f", replacing #{replaces_id}",
+    )
     if replaced is None:
         return Activated(draft.title, place)
     return Activated(draft.title, place, replaced.title, replaced.author_id)
@@ -197,11 +202,12 @@ async def _swap_in(
 
 def _log_version_scores(draft: Document, place: Place, matches: list[Match]) -> None:
     """With the author's answer (logged by activate), shows whether the thresholds hold."""
+    scores = ", ".join(
+        f"#{m.document.id} (name {m.name_score:.2f}, content {m.content_score:.2f})"
+        for m in matches
+    )
     logger.info(
-        "document #%d at %s may replace (id, name, content): %s",
-        draft.id,
-        place.id,
-        [(m.document.id, round(m.name_score, 2), round(m.content_score, 2)) for m in matches],
+        "document #%d at %s may replace: %s", draft.id, place.id, scores or "no earlier versions"
     )
 
 
