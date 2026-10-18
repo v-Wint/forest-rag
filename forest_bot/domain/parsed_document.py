@@ -4,7 +4,7 @@ from forest_bot.domain.enums import ExtractionMethod, FileKind
 
 
 class ParsedDocument(BaseModel):
-    """A file turned into clean, validated text: what the ETL hands to storage."""
+    """A file turned into clean, validated text: what ingestion hands to storage."""
 
     model_config = ConfigDict(frozen=True)
 

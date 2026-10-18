@@ -1,6 +1,6 @@
 import pytest
 
-from forest_bot.application.etl.extractors.ocr import words_to_result
+from forest_bot.application.ingest.extractors.ocr import words_to_result
 
 
 def _table(rows):

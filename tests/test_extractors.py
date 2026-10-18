@@ -1,13 +1,20 @@
 import io
+import zipfile
 
 import pypdfium2 as pdfium
 import pytest
 
-from forest_bot.application.etl import ExtractionError, FailureReason
-from forest_bot.application.etl.extractors import docx as docx_extractor
-from forest_bot.application.etl.extractors import extract_docx, extract_pdf, extract_txt, ocr
-from forest_bot.application.etl.extractors.ocr import OcrResult
+from forest_bot.application.ingest import ExtractionError, FailureReason
+from forest_bot.application.ingest.extractors import (
+    extract,
+    extract_docx,
+    extract_pdf,
+    extract_txt,
+    ocr,
+)
+from forest_bot.application.ingest.extractors.ocr import OcrResult
 from forest_bot.domain.enums import ExtractionMethod, FileKind
+from forest_bot.settings import settings
 
 TEXT = "Членські внески\nВнесок — 4 жолуді з дорослого звіра на місяць."
 BLANK = OcrResult(text="", confidence=0.0)  # what Tesseract gives for a page with no words
@@ -24,6 +31,12 @@ def ocr_returns(monkeypatch):
     return script
 
 
+def _fails_with(reason: FailureReason, data: bytes) -> None:
+    with pytest.raises(ExtractionError) as error:
+        extract(data)
+    assert error.value.reason is reason
+
+
 def _blank_pdf(pages: int) -> bytes:
     pdf = pdfium.PdfDocument.new()
     for _ in range(pages):
@@ -31,6 +44,31 @@ def _blank_pdf(pages: int) -> bytes:
     buffer = io.BytesIO()
     pdf.save(buffer)
     return buffer.getvalue()
+
+
+def test_picks_extractor_by_content(make_docx):
+    assert extract(make_docx("Порада")).file_kind is FileKind.DOCX
+    assert extract(TEXT.encode()).file_kind is FileKind.TXT
+
+
+def test_rejects_oversized_file(monkeypatch):
+    monkeypatch.setattr(settings, "max_file_bytes", 10)
+    _fails_with(FailureReason.TOO_LARGE, TEXT.encode())
+
+
+def test_rejects_legacy_doc():
+    _fails_with(FailureReason.UNSUPPORTED, b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(100))
+
+
+def test_rejects_binary_disguised_as_text():
+    _fails_with(FailureReason.UNSUPPORTED, bytes(range(256)) * 10)
+
+
+def test_rejects_non_docx_zip():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("xl/workbook.xml", "<workbook/>")
+    _fails_with(FailureReason.UNSUPPORTED, buffer.getvalue())
 
 
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig", "utf-16", "cp1251"])
@@ -48,7 +86,7 @@ def test_docx_paragraphs(make_docx):
 
 
 def test_docx_that_unpacks_too_large(make_docx, monkeypatch):
-    monkeypatch.setattr(docx_extractor, "MAX_UNPACKED_BYTES", 1_000)
+    monkeypatch.setattr(settings, "max_docx_unpacked_bytes", 1_000)
     with pytest.raises(ExtractionError) as error:
         extract_docx(make_docx("Порада"))
     assert error.value.reason is FailureReason.TOO_LARGE

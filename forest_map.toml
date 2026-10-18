@@ -1,0 +1,21 @@
+# The forest map: every place a document can apply to.
+# Ids are stored with documents (documents.scope_id): names can be changed freely, ids never.
+# A change takes effect after a restart.
+
+forest = "Весь ліс"
+
+[parts]
+coniferous = "Хвойний ліс"
+deciduous = "Листяний ліс"
+river = "Біля річки"
+
+# A mitten lies in zero or more parts of the forest.
+[mittens]
+under_spruce = { name = "Під ялиною", parts = ["coniferous"] }
+in_pines = { name = "У соснах", parts = ["coniferous"] }
+by_anthill = { name = "Біля мурашника", parts = ["coniferous"] }
+under_oak = { name = "Під дубом", parts = ["deciduous"] }
+in_hazel = { name = "У ліщині", parts = ["deciduous"] }
+under_willow = { name = "Під вербою", parts = ["deciduous", "river"] }
+by_beaver_dam = { name = "Біля бобрової греблі", parts = ["river"] }
+forest_edge = { name = "На узліссі", parts = [] }

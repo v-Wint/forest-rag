@@ -1,15 +1,16 @@
-"""Integration check against the real Forest Archive in settings.data_dir (not in the repo)."""
+"""Integration check against every real file in settings.archive_dir and
+settings.test_data_dir (not in the repo, and their contents change while testing the bot)."""
 
 import pytest
 
-from forest_bot.application.etl import parse_file
-from forest_bot.application.etl.extractors import ocr
+from forest_bot.application.ingest.extractors import ocr
+from forest_bot.application.ingest.ingest import parse_file
 from forest_bot.settings import settings
 
-DATA_DIR = settings.data_dir
-ARCHIVE_FILES = sorted(DATA_DIR.glob("*.*")) if DATA_DIR.exists() else []
+DATA_DIRS = (settings.archive_dir, settings.test_data_dir)
+FILES = sorted(p for d in DATA_DIRS if d.exists() for p in d.iterdir() if p.is_file())
 
-pytestmark = pytest.mark.skipif(not ARCHIVE_FILES, reason=f"archive not present in {DATA_DIR}")
+pytestmark = pytest.mark.skipif(not FILES, reason=f"no files in {DATA_DIRS}")
 
 
 class ScannedPage(Exception):
@@ -21,20 +22,12 @@ def _refuse(image):
     raise ScannedPage
 
 
-def test_every_archive_file_parses_or_is_a_scan(monkeypatch):
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
+def test_file_parses_or_is_a_scan(path, monkeypatch):
     monkeypatch.setattr(ocr, "recognize", _refuse)
-    parsed, scanned = [], []
-    for path in ARCHIVE_FILES:
-        try:
-            document = parse_file(path.read_bytes(), path.name)
-        except ScannedPage:
-            scanned.append(path.name)
-            continue
-        parsed.append(document)
-        # The provisional title must match the file name, modulo «» quotes.
-        assert document.title.replace("«", "").replace("»", "") == path.stem
-
-    assert len(parsed) == 59
-    assert len(scanned) == 19
-    assert all(name.endswith(".pdf") for name in scanned)
-    assert len({document.content_hash for document in parsed}) == len(parsed)
+    try:
+        document = parse_file(path.read_bytes(), path.name)
+    except ScannedPage:
+        assert path.suffix == ".pdf"
+        return
+    assert document.text

@@ -3,7 +3,7 @@ binary file renamed to .txt is rejected instead of being decoded into garbage.""
 
 import codecs
 
-from forest_bot.application.etl.errors import ExtractionError, FailureReason
+from forest_bot.application.ingest.errors import ExtractionError, FailureReason
 from forest_bot.domain.enums import FileKind
 
 _PDF_MAGIC = b"%PDF-"

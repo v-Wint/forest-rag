@@ -15,6 +15,11 @@ dependencies = [
     "pillow>=12.3.0",
     "alembic>=1.20.0",
     "asyncpg>=0.30",
+    "sentence-transformers>=5.1",
+    "torch>=2.9",
+    "langchain-text-splitters>=1.0",
+    "langchain-groq>=1.0",
+    "aiogram>=3.31",
 ]
 
 [dependency-groups]
@@ -22,6 +27,15 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
+
+# CPU-only torch: the default Linux wheels bundle CUDA (several GB in the Docker image).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [build-system]
 requires = ["hatchling"]

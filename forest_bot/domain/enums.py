@@ -8,9 +8,12 @@ class ScopeLevel(StrEnum):
 
 
 class DocStatus(StrEnum):
-    # Extracted and stored, place not assigned/confirmed yet; never used in answers.
+    # A draft: stored, waiting for its author to confirm the place. Counts for nothing:
+    # not embedded, never used in answers, ignored when checking for copies and versions.
     PENDING = "pending"
+    # Current advice: embedded and used in answers.
     ACTIVE = "active"
+    # Replaced by a newer version. Kept, never used in answers.
     SUPERSEDED = "superseded"
 
 

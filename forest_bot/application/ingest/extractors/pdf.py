@@ -4,16 +4,11 @@ from dataclasses import dataclass
 
 import pypdfium2 as pdfium
 
-from forest_bot.application.etl.errors import ExtractionError, FailureReason
-from forest_bot.application.etl.extractors import ocr
+from forest_bot.application.ingest.errors import ExtractionError, FailureReason
+from forest_bot.application.ingest.extractors import ocr
 from forest_bot.domain import ExtractedText
 from forest_bot.domain.enums import ExtractionMethod, FileKind
 from forest_bot.settings import settings
-
-MAX_PAGES = 300
-# A page with fewer letters than this in its text layer is a scanned image.
-MIN_LETTERS_FOR_TEXT_LAYER = 20
-OCR_RENDER_DPI = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +20,7 @@ class _Page:
 def extract_pdf(data: bytes) -> ExtractedText:
     try:
         with pdfium.PdfDocument(data) as pdf:
-            if len(pdf) > MAX_PAGES:
+            if len(pdf) > settings.max_pdf_pages:
                 raise ExtractionError(FailureReason.TOO_LARGE, f"PDF has {len(pdf)} pages")
             pages = [_read_page(page, number) for number, page in enumerate(pdf, start=1)]
     except pdfium.PdfiumError as exc:
@@ -43,10 +38,12 @@ def extract_pdf(data: bytes) -> ExtractedText:
 
 def _read_page(page: pdfium.PdfPage, number: int) -> _Page:
     text = page.get_textpage().get_text_bounded()
-    if sum(ch.isalpha() for ch in text) >= MIN_LETTERS_FOR_TEXT_LAYER:
+    if sum(ch.isalpha() for ch in text) >= settings.min_letters_for_text_layer:
         return _Page(text)
 
-    image = page.render(scale=OCR_RENDER_DPI / 72).to_pil()  # PDF units are 1/72 inch
+    # PDF units are 1/72 inch. (pypdfium2 has no type hints; `scale` is a float.)
+    scale = settings.ocr_render_dpi / 72
+    image = page.render(scale=scale).to_pil()  # type: ignore[arg-type]
     result = ocr.recognize(image)
     # No words at all is a blank page (e.g. the last page of a Word export), not a bad scan.
     if not result.text.strip():

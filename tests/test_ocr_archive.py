@@ -1,8 +1,9 @@
-"""OCR quality on the 19 scanned PDFs of the Forest Archive.
+"""OCR quality on the scanned PDFs of the Forest Archive (each skipped if its file is not
+in the data folders).
 
 Each scan has facts that must survive OCR exactly — amounts, dates, names, step counts —
 read by eye from the page images. Needs Tesseract with Ukrainian data and the archive in
-settings.data_dir:
+settings.archive_dir and settings.test_data_dir (scans are in both):
 
     uv run pytest tests/test_ocr_archive.py
 """
@@ -12,17 +13,22 @@ import shutil
 
 import pytest
 
-from forest_bot.application.etl import parse_file
-from forest_bot.application.etl.normalize import normalize_text
+from forest_bot.application.ingest.ingest import parse_file
+from forest_bot.application.ingest.transform import normalize_text
 from forest_bot.settings import settings
 
-DATA_DIR = settings.data_dir
+SCANS = {
+    p.stem: p
+    for d in (settings.archive_dir, settings.test_data_dir)
+    if d.exists()
+    for p in d.glob("*.pdf")
+}
 
 pytestmark = [
     pytest.mark.skipif(
         not (settings.tesseract_cmd or shutil.which("tesseract")), reason="tesseract not installed"
     ),
-    pytest.mark.skipif(not DATA_DIR.exists(), reason=f"archive not present in {DATA_DIR}"),
+    pytest.mark.skipif(not SCANS, reason="archive not present"),
 ]
 
 FACTS = {
@@ -150,7 +156,9 @@ def _canonical(text: str) -> str:
 
 @pytest.mark.parametrize("name", sorted(FACTS))
 def test_scan_keeps_its_facts(name):
-    document = parse_file((DATA_DIR / f"{name}.pdf").read_bytes(), f"{name}.pdf")
+    if name not in SCANS:
+        pytest.skip(f"{name}.pdf is not in the data folders")
+    document = parse_file(SCANS[name].read_bytes(), SCANS[name].name)
     text = _canonical(document.text)
     missing = [fact for fact in FACTS[name] if _canonical(fact) not in text]
     assert not missing, f"OCR lost: {missing}"

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from forest_bot.domain.base import Base
@@ -13,9 +13,21 @@ if TYPE_CHECKING:
 
 
 class Document(Base):
+    """One upload: a draft (`pending`), current advice (`active`) or a replaced version
+    (`superseded`). Uploading the same file again makes a new row with its own author and
+    date; only `active` documents are used in answers."""
+
     __tablename__ = "documents"
     __table_args__ = (
         Index("ix_documents_status_scope", "status", "scope_id"),
+        # The same text is current at most once. Drafts and replaced versions may repeat it:
+        # a draft counts for nothing, and a replaced version can be brought back.
+        Index(
+            "uq_documents_current_content_hash",
+            "content_hash",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
         # A document can only take part in answers once its place is known.
         CheckConstraint(
             "status = 'pending' OR (scope_level IS NOT NULL AND scope_id IS NOT NULL)",
@@ -39,10 +51,8 @@ class Document(Base):
     file_kind: Mapped[FileKind]
     extraction_method: Mapped[ExtractionMethod]
     ocr_confidence: Mapped[float | None]
-    content_hash: Mapped[str] = mapped_column(unique=True)
+    content_hash: Mapped[str]
     full_text: Mapped[str]
-    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id"))
-    file_path: Mapped[str | None]
 
     author: Mapped[User | None] = relationship(back_populates="documents")
     chunks: Mapped[list[Chunk]] = relationship(

@@ -1,5 +1,16 @@
+"""Read, second half: extracted text → a clean, validated ParsedDocument.
+
+normalize_text() cleans the text up (look-alike characters, lines a PDF broke mid-sentence);
+transform() checks it and adds the title and the content hash."""
+
+import hashlib
 import re
 import unicodedata
+from pathlib import PurePath
+
+from forest_bot.application.ingest.errors import ExtractionError, FailureReason
+from forest_bot.domain import ExtractedText, ParsedDocument
+from forest_bot.settings import settings
 
 _CHAR_MAP = str.maketrans(
     {
@@ -19,6 +30,35 @@ _CHAR_MAP = str.maketrans(
 _BULLET = re.compile(r"^[-–—•*]\s")
 _NUMBERED = re.compile(r"^\d+[.)]\s")
 _SENTENCE_END = ".!?:;"
+
+
+def transform(extracted: ExtractedText, filename: str) -> ParsedDocument:
+    text = normalize_text(extracted.text, reflow=extracted.needs_reflow)
+    if not text:
+        raise ExtractionError(FailureReason.EMPTY, "no text in the file")
+    if len(text) > settings.max_text_chars:
+        raise ExtractionError(FailureReason.TOO_LARGE, f"text is {len(text)} characters")
+
+    return ParsedDocument(
+        source_filename=filename,
+        file_kind=extracted.file_kind,
+        extraction_method=extracted.method,
+        title=title_from_filename(filename),
+        text=text,
+        content_hash=content_hash(text),
+        ocr_confidence=extracted.ocr_confidence,
+    )
+
+
+def content_hash(text: str) -> str:
+    return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
+
+
+def title_from_filename(filename: str) -> str:
+    """The file name is the document's title: the text's first line can be anything (OCR
+    reads a scan's decorative top as junk such as "1"). Telegram clients often send
+    underscores for spaces."""
+    return " ".join(PurePath(filename).stem.replace("_", " ").split()) or filename
 
 
 def normalize_text(text: str, *, reflow: bool) -> str:

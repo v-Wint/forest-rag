@@ -9,11 +9,6 @@ from PIL import Image, ImageOps
 
 from forest_bot.settings import settings
 
-# Binarization thresholds tried on every page; the most confident result wins.
-# Measured on the Forest Archive scans: any single threshold misses some facts
-# (e.g. the digit 3 read as the letter «З»), the best of these three misses none.
-THRESHOLDS = (90, 100, 110)
-
 if settings.tesseract_cmd:
     pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
@@ -32,8 +27,9 @@ def check_available() -> None:
 
 
 def recognize(image: Image.Image) -> OcrResult:
+    """The most confident reading over settings.ocr_thresholds."""
     return max(
-        (_recognize_at(image, threshold) for threshold in THRESHOLDS),
+        (_recognize_at(image, threshold) for threshold in settings.ocr_thresholds),
         key=lambda result: result.confidence,
     )
 
@@ -47,7 +43,8 @@ def _recognize_at(image: Image.Image, threshold: int) -> OcrResult:
 
 def binarize(image: Image.Image, threshold: int) -> Image.Image:
     """Keep only dark print: the textured background is lighter than the text."""
-    return ImageOps.grayscale(image).point(lambda p: 0 if p < threshold else 255)
+    # One entry per gray level: darker than the threshold → black, the rest → white.
+    return ImageOps.grayscale(image).point([0] * threshold + [255] * (256 - threshold))
 
 
 def words_to_result(data: dict[str, list[Any]]) -> OcrResult:

@@ -7,13 +7,10 @@ import docx
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-from forest_bot.application.etl.errors import ExtractionError, FailureReason
+from forest_bot.application.ingest.errors import ExtractionError, FailureReason
 from forest_bot.domain import ExtractedText
 from forest_bot.domain.enums import ExtractionMethod, FileKind
-
-# A .docx is a zip: check what it unpacks to before python-docx does (zip bombs).
-MAX_UNPACKED_BYTES = 100 * 1024 * 1024
-MAX_ENTRIES = 2_000
+from forest_bot.settings import settings
 
 
 def extract_docx(data: bytes) -> ExtractedText:
@@ -38,7 +35,7 @@ def _check_zip(data: bytes) -> None:
     if not any(entry.filename == "word/document.xml" for entry in entries):
         raise ExtractionError(FailureReason.UNSUPPORTED, "zip file that is not a .docx")
     unpacked = sum(entry.file_size for entry in entries)
-    if len(entries) > MAX_ENTRIES or unpacked > MAX_UNPACKED_BYTES:
+    if len(entries) > settings.max_docx_entries or unpacked > settings.max_docx_unpacked_bytes:
         raise ExtractionError(FailureReason.TOO_LARGE, f".docx unpacks to {unpacked} bytes")
 
 

@@ -2,7 +2,7 @@
 
 import codecs
 
-from forest_bot.application.etl.errors import ExtractionError, FailureReason
+from forest_bot.application.ingest.errors import ExtractionError, FailureReason
 from forest_bot.domain import ExtractedText
 from forest_bot.domain.enums import ExtractionMethod, FileKind
 
