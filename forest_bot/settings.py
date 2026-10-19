@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     version_name_threshold: float = 0.33
     version_content_threshold: float = 0.3
 
+    # Answers: the chunks found for each place whose advice applies (a mitten, its parts,
+    # the whole forest). A document that fits the embedding model is one chunk.
+    answer_chunks_per_place: int = 3
+    max_question_chars: int = 500
+
     groq_api_key: SecretStr | None = None
     llm_model: str = "openai/gpt-oss-120b"
     llm_temperature: float = 0.0

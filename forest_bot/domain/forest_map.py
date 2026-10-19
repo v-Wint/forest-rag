@@ -61,6 +61,16 @@ class ForestMap(BaseModel):
         except KeyError:
             raise UnknownPlace(place_id) from None
 
+    def place_and_broader(self, place: Place) -> list[Place]:
+        """The place and every broader place whose advice applies to it too, most specific
+        first: a mitten → the mitten, its parts, the whole forest; a part → the part, the
+        whole forest. Mitten advice never applies to a part."""
+        broader = self.mittens[place.id].parts if place.level == ScopeLevel.MITTEN else []
+        places = [place, *(self.places[part_id] for part_id in broader)]
+        if place.level != ScopeLevel.FOREST:
+            places.append(self.places[FOREST_ID])
+        return places
+
     def describe(self) -> str:
         """The map for an LLM prompt: one line per place, `- id: name (what it is)`."""
         lines = [f"- {FOREST_ID}: {self.forest} (the whole forest)"]

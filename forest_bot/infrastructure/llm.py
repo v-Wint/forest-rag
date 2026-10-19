@@ -7,8 +7,8 @@ from langchain_groq import ChatGroq
 
 from forest_bot.settings import settings
 
-# Every tag that marks untrusted text (documents) in a prompt.
-_DATA_TAGS = re.compile(r"<\s*/?\s*document\b[^>]*>", re.IGNORECASE)
+# Every tag that marks untrusted text (documents, questions) in a prompt.
+_DATA_TAGS = re.compile(r"<\s*/?\s*(document|question)\b[^>]*>", re.IGNORECASE)
 
 
 @cache

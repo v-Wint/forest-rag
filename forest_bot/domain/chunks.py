@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Index
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from forest_bot.domain.base import Base
@@ -12,17 +12,11 @@ if TYPE_CHECKING:
 
 
 class Chunk(Base):
+    """A piece of a document as embedded. There is no vector index on purpose: every search
+    is within one place, found through the documents' (status, scope_id) index, and the
+    distance to each of that place's chunks is computed exactly (see answer/search.py)."""
+
     __tablename__ = "chunks"
-    __table_args__ = (
-        # Approximate nearest-neighbour search by cosine distance (the `<=>` operator).
-        # HNSW, unlike IVFFlat, needs no training data, so it can be created on an empty table.
-        Index(
-            "ix_chunks_embedding",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
-    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(

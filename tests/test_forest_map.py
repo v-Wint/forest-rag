@@ -34,6 +34,18 @@ def test_a_place_id_used_twice_is_rejected():
         )
 
 
+def _ids(place_id: str) -> list[str]:
+    return [p.id for p in forest_map.place_and_broader(forest_map.place(place_id))]
+
+
+def test_broader_advice_applies_most_specific_first():
+    assert _ids("under_oak") == ["under_oak", "deciduous", "forest"]
+    assert _ids("under_willow") == ["under_willow", "deciduous", "river", "forest"]
+    assert _ids("forest_edge") == ["forest_edge", "forest"]
+    assert _ids("coniferous") == ["coniferous", "forest"]  # never its mittens' advice
+    assert _ids("forest") == ["forest"]
+
+
 def test_every_place_is_described_for_the_llm():
     description = forest_map.describe()
     for place_id in forest_map.places:

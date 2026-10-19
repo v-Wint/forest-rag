@@ -1,5 +1,6 @@
 """Everything the bot says, in one place."""
 
+from forest_bot.application.answer import Answer
 from forest_bot.application.ingest import FailureReason
 from forest_bot.domain import CurrentDocument, ScopeLevel
 from forest_bot.domain.forest_map import Place
@@ -59,7 +60,17 @@ NOT_YOURS = "Це вирішує лише той, хто надіслав док
 UNKNOWN_PLACE = "Такого місця вже немає на мапі лісу. Надішли документ ще раз."
 
 SEND_AS_FILE = "Фото я не читаю. Надішли документ файлом: PDF, DOCX або TXT."
-QUESTIONS_SOON = "Відповідати на питання я ще вчуся. Поки що можу прийняти документ."
+
+THINKING = "Шукаю відповідь…"
+ASK_QUESTION_PLACE = (
+    "Для якого місця це питання? Обери рукавичку, частину лісу або весь ліс. "
+    "Наступного разу можеш назвати місце в самому питанні."
+)
+QUESTION_TOO_LONG = "Питання задовге. Спробуй коротше, до {max} символів."
+QUESTION_LOST = "Не бачу самого питання. Напиши його ще раз."
+NO_ANSWER = "У порадах для «{place}» немає відповіді на це питання."
+SOURCES = "Джерела:"
+
 ERROR = "Щось пішло не так. Спробуй ще раз трохи згодом."
 
 EXTRACTION_ERRORS = {
@@ -71,6 +82,9 @@ EXTRACTION_ERRORS = {
         "Не можу надійно прочитати цей скан. Надішли чіткіший скан або текстовий файл."
     ),
 }
+
+# Telegram allows 4096 characters a message and counts an emoji as two: leave room.
+MAX_MESSAGE_CHARS = 4000
 
 _LEVEL_ICONS = {ScopeLevel.FOREST: "🌳", ScopeLevel.PART: "🗺", ScopeLevel.MITTEN: "🧤"}
 
@@ -88,6 +102,38 @@ def ask_replace(place: Place, earlier: list[CurrentDocument]) -> str:
     return ASK_REPLACE_MANY.format(place=place.name, documents=documents)
 
 
+def answer_messages(answer: Answer) -> list[str]:
+    """The answer, then its sources numbered as the [n] marks in it, in as many messages
+    as Telegram needs."""
+    if answer.text is None:
+        return [NO_ANSWER.format(place=answer.place.name)]
+    sources = "\n".join(f"[{n}] {_source(d)}" for n, d in enumerate(answer.sources, start=1))
+    return split_message(f"{answer.text}\n\n{SOURCES}\n{sources}")
+
+
+def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
+    """Pieces of at most `limit` characters, cut at the last line break that fits; inside a
+    line only when the line alone is longer."""
+    pieces = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit + 1)
+        if cut <= 0:
+            cut = limit
+        pieces.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    return [*pieces, text]
+
+
 def _describe(document: CurrentDocument) -> str:
-    source = document.author_name or ARCHIVE
-    return f"«{document.title}» — {source}, {document.uploaded_at:%d.%m.%Y}"
+    return f"«{document.title}» — {_sent_by(document)}"
+
+
+def _source(document: CurrentDocument) -> str:
+    return f"«{document.title}», {place_label(document.place)} — {_sent_by(document)}"
+
+
+def _sent_by(document: CurrentDocument) -> str:
+    """Who sent it and when; the Forest Archive's documents have neither."""
+    if document.author_name is None:
+        return ARCHIVE
+    return f"{document.author_name}, {document.uploaded_at:%d.%m.%Y}"

@@ -47,6 +47,22 @@ def place_keyboard(document_id: int, suggested: Place | None) -> InlineKeyboardM
     return builder.as_markup()
 
 
+class QuestionPlace(CallbackData, prefix="ask"):
+    # The question is the message these buttons reply to: it does not fit in 64 bytes.
+    place_id: str
+
+
+def question_place_keyboard() -> InlineKeyboardMarkup:
+    """Every place two per row: the whole forest, the parts, the mittens."""
+    builder = InlineKeyboardBuilder()
+    for place in forest_map.places.values():
+        builder.button(
+            text=texts.place_label(place), callback_data=QuestionPlace(place_id=place.id)
+        )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def rename_keyboard(document_id: int, new_name: str, old_name: str) -> InlineKeyboardMarkup:
     """Both file names, the new one first."""
     builder = InlineKeyboardBuilder()
