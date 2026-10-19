@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot import texts
-from forest_bot.application.ingest import CurrentDocument
+from forest_bot.domain import CurrentDocument
 from forest_bot.domain.forest_map import Place, forest_map
 
 

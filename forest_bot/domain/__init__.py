@@ -1,6 +1,7 @@
 # Importing every model here registers it on Base.metadata (needed by Alembic).
 from forest_bot.domain.base import Base
 from forest_bot.domain.chunks import Chunk
+from forest_bot.domain.current_document import CurrentDocument
 from forest_bot.domain.documents import Document
 from forest_bot.domain.enums import DocStatus, ExtractionMethod, FileKind, ScopeLevel
 from forest_bot.domain.extracted_text import ExtractedText
@@ -10,6 +11,7 @@ from forest_bot.domain.users import User
 __all__ = [
     "Base",
     "Chunk",
+    "CurrentDocument",
     "DocStatus",
     "Document",
     "ExtractedText",

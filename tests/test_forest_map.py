@@ -32,3 +32,11 @@ def test_a_place_id_used_twice_is_rejected():
         ForestMap.model_validate(
             {"forest": "Ліс", "parts": {"x": "Х"}, "mittens": {"x": {"name": "М", "parts": []}}}
         )
+
+
+def test_every_place_is_described_for_the_llm():
+    description = forest_map.describe()
+    for place_id in forest_map.places:
+        assert f"- {place_id}: " in description
+    assert "Під вербою (a mitten in: Листяний ліс, Біля річки)" in description
+    assert "На узліссі (a mitten in: no part)" in description

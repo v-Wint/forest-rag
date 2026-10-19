@@ -61,6 +61,15 @@ class ForestMap(BaseModel):
         except KeyError:
             raise UnknownPlace(place_id) from None
 
+    def describe(self) -> str:
+        """The map for an LLM prompt: one line per place, `- id: name (what it is)`."""
+        lines = [f"- {FOREST_ID}: {self.forest} (the whole forest)"]
+        lines += [f"- {i}: {name} (a part of the forest)" for i, name in self.parts.items()]
+        for mitten_id, mitten in self.mittens.items():
+            parts = ", ".join(self.parts[p] for p in mitten.parts) or "no part"
+            lines.append(f"- {mitten_id}: {mitten.name} (a mitten in: {parts})")
+        return "\n".join(lines)
+
     @classmethod
     def load(cls, path: Path) -> ForestMap:
         return cls.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))

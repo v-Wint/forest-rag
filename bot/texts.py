@@ -1,7 +1,7 @@
 """Everything the bot says, in one place."""
 
-from forest_bot.application.ingest import CurrentDocument, FailureReason
-from forest_bot.domain import ScopeLevel
+from forest_bot.application.ingest import FailureReason
+from forest_bot.domain import CurrentDocument, ScopeLevel
 from forest_bot.domain.forest_map import Place
 
 START = (

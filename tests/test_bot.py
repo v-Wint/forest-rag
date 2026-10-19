@@ -9,7 +9,8 @@ from bot.keyboards import (
     rename_keyboard,
     replace_keyboard,
 )
-from forest_bot.application.ingest import CurrentDocument, FailureReason
+from forest_bot.application.ingest import FailureReason
+from forest_bot.domain import CurrentDocument
 from forest_bot.domain.forest_map import forest_map
 
 # Telegram rejects callback data longer than 64 bytes.

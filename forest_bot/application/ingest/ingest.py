@@ -17,7 +17,6 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,23 +33,11 @@ from forest_bot.application.ingest.errors import (
 from forest_bot.application.ingest.extractors import extract
 from forest_bot.application.ingest.transform import transform
 from forest_bot.application.ingest.versions import Match, find_versions
-from forest_bot.domain import Chunk, DocStatus, Document, ParsedDocument
+from forest_bot.domain import Chunk, CurrentDocument, DocStatus, Document, ParsedDocument
 from forest_bot.domain.forest_map import Place, forest_map
 from forest_bot.infrastructure import db
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class CurrentDocument:
-    """An active document, as the bot shows it to animals."""
-
-    id: int
-    title: str
-    place: Place
-    author_name: str | None  # None: from the Forest Archive
-    uploaded_at: datetime
-    filename: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +74,7 @@ async def upload_document(data: bytes, filename: str, *, author_id: int) -> Uplo
         draft = await store.save_draft(session, parsed, author_id=author_id)
         exact_copy = await store.find_active_with_same_text(session, draft.content_hash)
     if exact_copy is not None:
-        return Upload(draft.id, draft.title, None, exact_copy_of=_as_current(exact_copy))
+        return Upload(draft.id, draft.title, None, exact_copy_of=CurrentDocument.of(exact_copy))
     return Upload(draft.id, draft.title, await _suggest_place_unless_llm_fails(draft))
 
 
@@ -100,7 +87,7 @@ async def rename_current(document_id: int, *, author_id: int) -> CurrentDocument
         if active is None:
             raise DocumentsChanged(f"the text of document #{document_id} is not active")
         active.source_filename, active.title = draft.source_filename, draft.title
-        return _as_current(active)
+        return CurrentDocument.of(active)
 
 
 async def find_earlier_versions(
@@ -114,7 +101,7 @@ async def find_earlier_versions(
         active_there = await store.list_active_at(session, place.id)
     matches = find_versions(draft, active_there)
     _log_version_scores(draft, place, matches)
-    return [_as_current(match.document) for match in matches]
+    return [CurrentDocument.of(match.document) for match in matches]
 
 
 async def activate(
@@ -208,16 +195,4 @@ def _log_version_scores(draft: Document, place: Place, matches: list[Match]) -> 
     )
     logger.info(
         "document #%d at %s may replace: %s", draft.id, place.id, scores or "no earlier versions"
-    )
-
-
-def _as_current(active: Document) -> CurrentDocument:
-    assert active.scope_id is not None, "an active document always has a place"
-    return CurrentDocument(
-        id=active.id,
-        title=active.title,
-        place=forest_map.place(active.scope_id),
-        author_name=active.author.real_name if active.author else None,
-        uploaded_at=active.uploaded_at,
-        filename=active.source_filename,
     )

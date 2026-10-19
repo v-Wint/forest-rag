@@ -11,7 +11,6 @@ from forest_bot.application.ingest.errors import (
 )
 from forest_bot.application.ingest.ingest import (
     Activated,
-    CurrentDocument,
     Seeded,
     Upload,
     activate,
@@ -25,7 +24,6 @@ __all__ = [
     "Activated",
     "AlreadyCurrent",
     "AlreadyHandled",
-    "CurrentDocument",
     "DocumentsChanged",
     "ExtractionError",
     "FailureReason",
