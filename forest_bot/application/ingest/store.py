@@ -38,6 +38,21 @@ async def find_active_with_same_text(session: AsyncSession, content_hash: str) -
     )
 
 
+async def archive_file_loaded(session: AsyncSession, filename: str) -> bool:
+    """An archive file seeded before: active now, or replaced since."""
+    return bool(
+        await session.scalar(
+            select(
+                exists().where(
+                    Document.author_id.is_(None),
+                    Document.source_filename == filename,
+                    Document.status != DocStatus.PENDING,
+                )
+            )
+        )
+    )
+
+
 async def was_ever_active(session: AsyncSession, content_hash: str) -> bool:
     """Active now, or replaced since."""
     return bool(

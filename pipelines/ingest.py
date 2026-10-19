@@ -1,8 +1,9 @@
 """Seed the database with every file in settings.archive_dir, the Forest Archive.
 
 Archive documents have no author to ask, so the LLM's place is final and nothing is
-replaced. A text that was ever current is skipped, so re-running is safe; a document the
-LLM cannot place is not used, and is tried again on the next run.
+replaced. A file or text loaded before is skipped, so re-running is safe and fast (the bot's
+Docker image runs it on every start); a document the LLM cannot place is not used, and is
+tried again on the next run.
 
 uv run python -m pipelines.ingest
 """

@@ -167,7 +167,18 @@ def test_the_same_text_made_current_meanwhile_is_refused(fake_db, new_version, m
         asyncio.run(activate(new_version, "under_oak", author_id=SQUIRREL))
 
 
+def test_archive_seeding_skips_files_seeded_before_without_reading_them(fake_db, monkeypatch):
+    monkeypatch.setattr(store, "archive_file_loaded", _returning(True))
+    monkeypatch.setattr(ingest, "parse_file", _must_not_be_called)
+    monkeypatch.setattr(store, "save_draft", _must_not_be_called)
+
+    seeded = asyncio.run(seed_document(DUES.encode(), "Членські_внески.txt"))
+
+    assert seeded.already_loaded and seeded.title == "Членські внески"
+
+
 def test_archive_seeding_skips_texts_seen_before(fake_db, monkeypatch):
+    monkeypatch.setattr(store, "archive_file_loaded", _returning(False))
     monkeypatch.setattr(store, "was_ever_active", _returning(True))
     monkeypatch.setattr(store, "save_draft", _must_not_be_called)
     monkeypatch.setattr(ingest, "suggest_place", _must_not_be_called)

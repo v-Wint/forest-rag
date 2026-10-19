@@ -31,7 +31,7 @@ from forest_bot.application.ingest.errors import (
     NotTheAuthor,
 )
 from forest_bot.application.ingest.extractors import extract
-from forest_bot.application.ingest.transform import transform
+from forest_bot.application.ingest.transform import title_from_filename, transform
 from forest_bot.application.ingest.versions import Match, find_versions
 from forest_bot.domain import Chunk, CurrentDocument, DocStatus, Document, ParsedDocument
 from forest_bot.domain.forest_map import Place, forest_map
@@ -132,7 +132,13 @@ async def activate(
 
 async def seed_document(data: bytes, filename: str) -> Seeded:
     """A Forest Archive file: the LLM's place is final and nothing is replaced. A text that
-    was ever active is skipped, so a re-run never brings back a replaced archive document."""
+    was ever active is skipped, so a re-run never brings back a replaced archive document.
+
+    A file seeded before is skipped by its name, before the slow part (OCR, the LLM): every
+    start of the bot seeds the archive, and only the first one finds work to do."""
+    async with db.sessions.begin() as session:
+        if await store.archive_file_loaded(session, filename):
+            return Seeded(title_from_filename(filename), None, already_loaded=True)
     parsed = await _parse_off_the_event_loop(data, filename)
     async with db.sessions.begin() as session:
         if await store.was_ever_active(session, parsed.content_hash):
