@@ -29,8 +29,7 @@ class Settings(BaseSettings):
     max_docx_unpacked_bytes: int = 100 * 1024 * 1024
     max_docx_entries: int = 2_000
 
-    # Path to the tesseract binary if it is not on PATH (e.g. on Windows).
-    tesseract_cmd: str | None = None
+    # Tesseract is found on PATH.
     ocr_lang: str = "ukr"
     # Scanned pages with lower mean word confidence (0–100) are rejected as unreadable.
     ocr_min_confidence: float = 60.0

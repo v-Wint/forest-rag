@@ -9,9 +9,6 @@ from PIL import Image, ImageOps
 
 from forest_bot.settings import settings
 
-if settings.tesseract_cmd:
-    pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
-
 
 @dataclass(frozen=True, slots=True)
 class OcrResult:
