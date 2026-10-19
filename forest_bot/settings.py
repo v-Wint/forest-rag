@@ -73,11 +73,9 @@ class Settings(BaseSettings):
 
     # The places a document can apply to; see the file itself.
     forest_map_path: Path = PROJECT_ROOT / "forest_map.toml"
-    # The Forest Archive files, not part of the repository. The archive is what the bot
-    # starts with (pipelines.ingest loads it); the test files are uploaded through the bot
-    # when testing it. Tests that check extraction use both.
+    # The Forest Archive files, not part of the repository: what the bot starts with
+    # (pipelines.ingest loads it).
     archive_dir: Path = PROJECT_ROOT / "data" / "archive"
-    test_data_dir: Path = PROJECT_ROOT / "data" / "test"
 
     @property
     def database_url(self) -> URL:

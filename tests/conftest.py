@@ -1,11 +1,11 @@
-import asyncio
 import io
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 
 import docx
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from forest_bot.domain import Document
 from forest_bot.infrastructure import db
 
 
@@ -22,33 +22,39 @@ def make_docx() -> Callable[..., bytes]:
     return make
 
 
+class FakeSession:
+    """Stands in for an AsyncSession: documents looked up by id, and what was added."""
+
+    def __init__(self) -> None:
+        self.documents: dict[int, Document] = {}
+        self.added: list[object] = []
+
+    async def get_one(self, model: type, id: int) -> Document:
+        return self.documents[id]
+
+    def add_all(self, objects: list[object]) -> None:
+        self.added.extend(objects)
+
+
+class _Sessions:
+    def __init__(self, session: FakeSession) -> None:
+        self._session = session
+
+    def __call__(self):
+        return self._open()
+
+    def begin(self):
+        return self._open()
+
+    @asynccontextmanager
+    async def _open(self):
+        yield self._session
+
+
 @pytest.fixture
-def run_in_db(monkeypatch) -> Callable[[Callable[[], Awaitable]], object]:
-    """Run an async test body against the real PostgreSQL inside one transaction that is
-    rolled back, so the database is left untouched. Each `db.sessions.begin()` in the code
-    under test commits only a savepoint. Skips the test when no database is reachable."""
-
-    async def in_transaction(body: Callable[[], Awaitable]) -> object:
-        try:
-            async with db.engine.connect() as connection:
-                transaction = await connection.begin()
-                sessions = async_sessionmaker(
-                    bind=connection,
-                    expire_on_commit=False,
-                    join_transaction_mode="create_savepoint",
-                )
-                monkeypatch.setattr(db, "sessions", sessions)
-                try:
-                    return await body()
-                finally:
-                    await transaction.rollback()
-        finally:
-            await db.engine.dispose()  # its connections belong to this event loop
-
-    def run(body: Callable[[], Awaitable]) -> object:
-        try:
-            return asyncio.run(in_transaction(body))
-        except OSError as exc:  # connection refused
-            pytest.skip(f"no database: {type(exc).__name__}")
-
-    return run
+def fake_db(monkeypatch) -> FakeSession:
+    """No database: db.sessions() and db.sessions.begin() open this one fake session. Each
+    test replaces the queries it needs (store.py, search.py) with fixed results."""
+    session = FakeSession()
+    monkeypatch.setattr(db, "sessions", _Sessions(session))
+    return session

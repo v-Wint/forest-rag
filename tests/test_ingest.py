@@ -1,10 +1,11 @@
-"""ingest.py: reading a file offline, then the upload conversation end to end against the
-real PostgreSQL (see the run_in_db fixture) and embedding model, with the LLM replaced."""
+"""ingest.py's decisions. The database (see the fake_db fixture), its queries in store.py,
+the embedding model and the LLM are replaced with fixed results."""
 
-import uuid
+import asyncio
+from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from forest_bot.application.ingest import (
     AlreadyCurrent,
@@ -16,23 +17,57 @@ from forest_bot.application.ingest import (
     ingest,
     rename_current,
     seed_document,
+    store,
     upload_document,
 )
 from forest_bot.application.ingest.ingest import parse_file
-from forest_bot.application.users import register_user
-from forest_bot.domain import Chunk, DocStatus, Document, ScopeLevel
-from forest_bot.domain.forest_map import UnknownPlace, forest_map
-from forest_bot.infrastructure import db
+from forest_bot.domain import Chunk, DocStatus, Document
+from forest_bot.domain.forest_map import forest_map
 
-# Unique, so it never collides with a document already in the database.
-CODE = uuid.uuid4().hex
 DUES = (
     "Членські внески\n\nКожен дорослий звір здає 4 жолуді на місяць до 10 числа. Внески "
-    "приймає скарбник у кошик біля входу. Замість 4 жолудів можна віддати 2 лісові горіхи. "
-    f"Код {CODE}."
+    "приймає скарбник у кошик біля входу."
 )
-NEW_DUES = DUES.replace("4 жолуді", "5 жолудів").replace("10 числа", "12 числа")
-SQUIRREL, BOAR = 900_000_001, 900_000_002
+SQUIRREL, BOAR = 1, 2
+OAK = forest_map.place("under_oak")
+
+
+def _document(
+    id: int, filename: str, *, status=DocStatus.PENDING, author_id: int | None = SQUIRREL
+) -> Document:
+    parsed = parse_file(DUES.encode(), filename)
+    placed = status != DocStatus.PENDING
+    return Document(
+        id=id,
+        title=parsed.title,
+        status=status,
+        scope_level=OAK.level if placed else None,
+        scope_id=OAK.id if placed else None,
+        author_id=author_id,
+        uploaded_at=datetime(2026, 9, 12, tzinfo=UTC),
+        source_filename=filename,
+        file_kind=parsed.file_kind,
+        extraction_method=parsed.extraction_method,
+        content_hash=parsed.content_hash,
+        full_text=parsed.text,
+    )
+
+
+def _returning(value):
+    async def call(*args, **kwargs):
+        return value
+
+    return call
+
+
+def _raising(error: Exception):
+    async def call(*args, **kwargs):
+        raise error
+
+    return call
+
+
+_must_not_be_called = _raising(AssertionError("must not be called"))
 
 
 def test_same_text_in_another_format_has_the_same_hash(make_docx):
@@ -41,159 +76,102 @@ def test_same_text_in_another_format_has_the_same_hash(make_docx):
     assert as_txt.content_hash == as_docx.content_hash
 
 
-async def _fake_suggest(title: str, text: str):
-    return forest_map.place("under_oak")
+def test_an_exact_copy_points_to_the_current_document(fake_db, monkeypatch):
+    monkeypatch.setattr(store, "save_draft", _returning(_document(2, "Членські внески.txt")))
+    current = _document(1, "Внески.txt", status=DocStatus.ACTIVE, author_id=BOAR)
+    monkeypatch.setattr(store, "find_active_with_same_text", _returning(current))
+    monkeypatch.setattr(ingest, "suggest_place", _must_not_be_called)
+
+    upload = asyncio.run(upload_document(DUES.encode(), "Членські внески.txt", author_id=SQUIRREL))
+
+    assert upload.document_id == 2 and upload.suggested_place is None
+    assert upload.exact_copy_of is not None
+    assert (upload.exact_copy_of.id, upload.exact_copy_of.filename) == (1, "Внески.txt")
 
 
-async def _upload(text: str, filename: str, author_id: int):
-    return await upload_document(text.encode(), filename, author_id=author_id)
+def test_without_the_llm_the_author_picks_the_place(fake_db, monkeypatch):
+    monkeypatch.setattr(store, "save_draft", _returning(_document(2, "Внески.txt")))
+    monkeypatch.setattr(store, "find_active_with_same_text", _returning(None))
+    monkeypatch.setattr(ingest, "suggest_place", _raising(RuntimeError("Groq is down")))
 
+    upload = asyncio.run(upload_document(DUES.encode(), "Внески.txt", author_id=SQUIRREL))
 
-async def _conversation() -> dict:
-    seen = {}
-    await register_user(SQUIRREL, "Білка")
-    await register_user(BOAR, "Кабан")
-
-    first = await _upload(DUES, "Членські внески.txt", SQUIRREL)
-    # Someone else's draft of the same text counts for nothing: it does not block this one.
-    rival = await _upload(DUES, "внески.txt", BOAR)
-    seen["first"], seen["rival"] = first, rival
-    seen["placed"] = await activate(first.document_id, "under_oak", author_id=SQUIRREL)
-    with pytest.raises(AlreadyHandled):  # the button pressed twice
-        await activate(first.document_id, "under_oak", author_id=SQUIRREL)
-    with pytest.raises(AlreadyHandled):  # a place button pressed again: not its own version
-        await find_earlier_versions(first.document_id, "under_oak", author_id=SQUIRREL)
-    with pytest.raises(AlreadyCurrent):  # the rival confirms too late
-        await activate(rival.document_id, "under_oak", author_id=BOAR)
-    # Current now: the same text again is that document; a new file name is only a draft
-    # until its author says that document takes it.
-    seen["same_name"] = await _upload(DUES, "Членські внески.txt", BOAR)
-    copy = await _upload(DUES, "Внески 2026.txt", BOAR)
-    seen["copy"] = copy
-    with pytest.raises(NotTheAuthor):
-        await rename_current(copy.document_id, author_id=SQUIRREL)
-    seen["renamed"] = await rename_current(copy.document_id, author_id=BOAR)
-
-    # A new version: found at its place, replaces the old one.
-    new = await _upload(NEW_DUES, "Членські внески (нові).txt", BOAR)
-    with pytest.raises(NotTheAuthor):
-        await find_earlier_versions(new.document_id, "under_oak", author_id=SQUIRREL)
-    seen["earlier"] = await find_earlier_versions(new.document_id, "under_oak", author_id=BOAR)
-    seen["elsewhere"] = await find_earlier_versions(new.document_id, "in_hazel", author_id=BOAR)
-    seen["replaced"] = await activate(
-        new.document_id, "under_oak", replaces_id=first.document_id, author_id=BOAR
-    )
-    # Someone still deciding about the old version is too late as well.
-    late = await _upload(NEW_DUES + " Оновлено.", "Внески.txt", SQUIRREL)
-    with pytest.raises(DocumentsChanged):
-        await activate(
-            late.document_id, "under_oak", replaces_id=first.document_id, author_id=SQUIRREL
-        )
-    with pytest.raises(NotTheAuthor):
-        await activate(late.document_id, "under_oak", author_id=BOAR)
-    with pytest.raises(UnknownPlace):
-        await activate(late.document_id, "under_birch", author_id=SQUIRREL)
-    with pytest.raises(DocumentsChanged):  # renaming a text that was replaced meanwhile
-        await rename_current(copy.document_id, author_id=BOAR)
-
-    # The old version brought back: a new upload, which replaces the current one.
-    back = await _upload(DUES, "Членські внески.txt", SQUIRREL)
-    seen["back"] = back
-    seen["back_earlier"] = await find_earlier_versions(
-        back.document_id, "under_oak", author_id=SQUIRREL
-    )
-    await activate(back.document_id, "under_oak", replaces_id=new.document_id, author_id=SQUIRREL)
-
-    async with db.sessions() as session:
-        ids = {
-            "first": first.document_id,
-            "rival": rival.document_id,
-            "new": new.document_id,
-            "late": late.document_id,
-            "back": back.document_id,
-        }
-        documents = {name: await session.get_one(Document, i) for name, i in ids.items()}
-        seen["states"] = {name: d.status for name, d in documents.items()}
-        seen["first_name"] = documents["first"].source_filename
-        seen["back_scope"] = (documents["back"].scope_level, documents["back"].scope_id)
-        seen["chunks"] = {
-            name: await session.scalar(
-                select(func.count()).select_from(Chunk).where(Chunk.document_id == i)
-            )
-            for name, i in ids.items()
-        }
-    seen["ids"] = ids
-    return seen
-
-
-def test_upload_replace_and_bring_back(run_in_db, monkeypatch):
-    monkeypatch.setattr(ingest, "suggest_place", _fake_suggest)
-    seen = run_in_db(_conversation)
-    ids = seen["ids"]
-
-    first = seen["first"]
-    assert first.exact_copy_of is None and first.title == "Членські внески"
-    assert first.suggested_place.id == "under_oak"
-    assert seen["rival"].exact_copy_of is None and seen["rival"].document_id != ids["first"]
-    assert seen["placed"].replaced_title is None
-
-    same_name = seen["same_name"]
-    assert (
-        same_name.exact_copy_of is not None
-        and same_name.exact_copy_of.filename == "Членські внески.txt"
-    )
-    copy = seen["copy"]
-    assert copy.exact_copy_of is not None and copy.exact_copy_of.id == ids["first"]
-    assert copy.exact_copy_of.author_name == "Білка" and copy.exact_copy_of.place.id == "under_oak"
-    assert copy.exact_copy_of.filename == "Членські внески.txt"  # not renamed until asked
-    assert copy.document_id != ids["first"]  # the draft that keeps the new name
-    assert seen["renamed"].filename == seen["first_name"] == "Внески 2026.txt"
-    assert seen["renamed"].title == "Внески 2026"  # the title is the file name
-
-    assert [d.id for d in seen["earlier"]][:1] == [ids["first"]]
-    assert seen["elsewhere"] == []  # versions are only looked for at the same place
-    replaced = seen["replaced"]
-    # Renamed above, so it is replaced under its new name.
-    assert (replaced.replaced_title, replaced.replaced_author_id) == ("Внески 2026", SQUIRREL)
-
-    assert seen["back"].exact_copy_of is None  # replaced texts may come back
-    assert [d.id for d in seen["back_earlier"]][:1] == [ids["new"]]
-
-    assert seen["states"] == {
-        "first": DocStatus.SUPERSEDED,
-        "rival": DocStatus.PENDING,
-        "new": DocStatus.SUPERSEDED,
-        "late": DocStatus.PENDING,
-        "back": DocStatus.ACTIVE,
-    }
-    assert seen["back_scope"] == (ScopeLevel.MITTEN, "under_oak")
-    # Drafts are never embedded; a document is embedded when it becomes current.
-    assert seen["chunks"]["rival"] == seen["chunks"]["late"] == 0
-    assert seen["chunks"]["first"] == seen["chunks"]["back"] == 1
-
-
-async def _failing_suggest(title: str, text: str):
-    raise RuntimeError("Groq is down")
-
-
-async def _upload_without_llm():
-    await register_user(SQUIRREL, "Білка")
-    return await _upload(f"Правила толоки. Код {uuid.uuid4().hex}.", "Толока.txt", SQUIRREL)
-
-
-def test_without_the_llm_the_author_picks_the_place(run_in_db, monkeypatch):
-    monkeypatch.setattr(ingest, "suggest_place", _failing_suggest)
-    upload = run_in_db(_upload_without_llm)
     assert upload.exact_copy_of is None and upload.suggested_place is None
 
 
-async def _seed_twice() -> tuple:
-    text = f"Правила толоки\n\nПрибираємо ліс щосуботи. Код {uuid.uuid4().hex}."
-    return await seed_document(text.encode(), "a.txt"), await seed_document(text.encode(), "b.txt")
+@pytest.mark.parametrize(
+    ("status", "author_id", "error"),
+    [
+        (DocStatus.PENDING, BOAR, NotTheAuthor),  # someone else's buttons
+        (DocStatus.ACTIVE, SQUIRREL, AlreadyHandled),  # a button pressed twice
+    ],
+)
+def test_only_the_author_decides_and_only_once(fake_db, status, author_id, error):
+    fake_db.documents[2] = _document(2, "Внески.txt", status=status)
+    with pytest.raises(error):
+        asyncio.run(find_earlier_versions(2, "under_oak", author_id=author_id))
+    with pytest.raises(error):
+        asyncio.run(activate(2, "under_oak", author_id=author_id))
+    with pytest.raises(error):
+        asyncio.run(rename_current(2, author_id=author_id))
 
 
-def test_archive_seeding_skips_texts_seen_before(run_in_db, monkeypatch):
-    monkeypatch.setattr(ingest, "suggest_place", _fake_suggest)
-    first, again = run_in_db(_seed_twice)
-    assert first.place is not None and first.place.id == "under_oak" and not first.already_loaded
-    assert again.already_loaded and again.place is None
+def test_renaming_gives_the_current_document_the_new_file_name(fake_db, monkeypatch):
+    fake_db.documents[2] = _document(2, "Внески 2026.txt")
+    current = _document(1, "Внески.txt", status=DocStatus.ACTIVE, author_id=BOAR)
+    monkeypatch.setattr(store, "find_active_with_same_text", _returning(current))
+
+    renamed = asyncio.run(rename_current(2, author_id=SQUIRREL))
+
+    assert (renamed.id, renamed.title, renamed.filename) == (1, "Внески 2026", "Внески 2026.txt")
+
+
+def test_renaming_a_text_replaced_meanwhile_is_refused(fake_db, monkeypatch):
+    fake_db.documents[2] = _document(2, "Внески 2026.txt")
+    monkeypatch.setattr(store, "find_active_with_same_text", _returning(None))
+    with pytest.raises(DocumentsChanged):
+        asyncio.run(rename_current(2, author_id=SQUIRREL))
+
+
+@pytest.fixture
+def new_version(fake_db, monkeypatch) -> int:
+    """A draft by the squirrel, ready to embed."""
+    fake_db.documents[2] = _document(2, "Внески (нові).txt")
+    monkeypatch.setattr(ingest, "embed_document", _returning([Chunk(ordinal=0, text=DUES)]))
+    return 2
+
+
+def test_a_new_version_replaces_the_old_one_with_its_chunks(fake_db, new_version, monkeypatch):
+    old = _document(1, "Внески.txt", status=DocStatus.SUPERSEDED, author_id=BOAR)
+    monkeypatch.setattr(store, "supersede_if_active_at", _returning(old))
+    monkeypatch.setattr(store, "activate_if_draft", _returning(True))
+
+    activated = asyncio.run(activate(new_version, "under_oak", replaces_id=1, author_id=SQUIRREL))
+
+    assert (activated.title, activated.place) == ("Внески (нові)", OAK)
+    assert (activated.replaced_title, activated.replaced_author_id) == ("Внески", BOAR)
+    assert [c.text for c in fake_db.added] == [DUES]  # type: ignore[attr-defined]
+
+
+def test_replacing_a_version_replaced_meanwhile_is_refused(fake_db, new_version, monkeypatch):
+    monkeypatch.setattr(store, "supersede_if_active_at", _returning(None))
+    with pytest.raises(DocumentsChanged):
+        asyncio.run(activate(new_version, "under_oak", replaces_id=1, author_id=SQUIRREL))
+    assert fake_db.added == []
+
+
+def test_the_same_text_made_current_meanwhile_is_refused(fake_db, new_version, monkeypatch):
+    unique_index = IntegrityError("UPDATE documents", {}, Exception("uq_documents_current"))
+    monkeypatch.setattr(store, "activate_if_draft", _raising(unique_index))
+    with pytest.raises(AlreadyCurrent):
+        asyncio.run(activate(new_version, "under_oak", author_id=SQUIRREL))
+
+
+def test_archive_seeding_skips_texts_seen_before(fake_db, monkeypatch):
+    monkeypatch.setattr(store, "was_ever_active", _returning(True))
+    monkeypatch.setattr(store, "save_draft", _must_not_be_called)
+    monkeypatch.setattr(ingest, "suggest_place", _must_not_be_called)
+
+    seeded = asyncio.run(seed_document(DUES.encode(), "Внески.txt"))
+
+    assert seeded.already_loaded and seeded.place is None
