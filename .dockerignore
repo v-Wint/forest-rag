@@ -1,0 +1,16 @@
+# Secrets come from the environment at run time, never from the image.
+.env
+
+.git/
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Local copies of the archive; the image downloads its own.
+.archive/
+data/
+build/
+
+tests/

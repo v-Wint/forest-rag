@@ -1,3 +1,7 @@
+# The whole bot, with one command: docker compose up
+# (For local development, compose.dev.yml runs the database alone.)
+name: forest-bot
+
 services:
   db:
     image: pgvector/pgvector:pg18
@@ -6,9 +10,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-forest}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-forest}
-    # Published on localhost only.
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     volumes:
       # Postgres 18 images keep data under /var/lib/postgresql/<version>/.
       - pgdata:/var/lib/postgresql
@@ -18,5 +19,25 @@ services:
       timeout: 3s
       retries: 10
 
+  bot:
+    build: .
+    restart: unless-stopped
+    # A tiny init process as PID 1 passes `docker stop` on to the start command: sh alone
+    # would ignore it while the archive is being seeded, and be killed after 10 seconds.
+    init: true
+    # Tokens and settings, read when the container starts; never part of the image.
+    env_file: .env
+    environment:
+      # The database container by its service name (.env has the address used on the host).
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      # The embedding model, downloaded on the first start and kept across rebuilds.
+      - models:/models
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  models:
